@@ -66,7 +66,7 @@ app.MapGet("/version", () => new
     app     = "DemoApp",
     built   = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm") + " UTC"
 });
-
+// additon
 // Health check endpoint — pipelines ping this after deploy
 // Returns 200 OK if app is running, used to verify deployment succeeded
 app.MapGet("/health", () => new
