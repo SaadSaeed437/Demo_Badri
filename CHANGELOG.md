@@ -2,6 +2,12 @@
 
 All notable changes are documented here automatically by the pipeline.
 
+## [v1.2.0] - 2026-05-19
+
+### Fixed
+- addition fixed
+
+
 ## [v1.1.0] - 2026-05-19
 
 ### Added
