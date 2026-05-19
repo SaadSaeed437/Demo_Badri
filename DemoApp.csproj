@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <!-- Target .NET 8 — LTS version -->
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- App version — also stamped by pipeline into version.txt -->
+    <Version>1.0.0</Version>
+    <AssemblyName>DemoApp</AssemblyName>
+  </PropertyGroup>
+
+</Project>
