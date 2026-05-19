@@ -1,0 +1,370 @@
+# ==============================================================
+#
+#   DemoApp — GitHub Actions Workflow
+#   File: .github/workflows/main-pipeline.yml
+#
+#   WHAT IS THIS FILE?
+#   ──────────────────
+#   This is a GitHub Actions workflow file.
+#   It tells GitHub: "When something happens in this repo,
+#   run these steps automatically on GitHub's servers."
+#
+#   You never run this manually.
+#   GitHub reads it and executes it for you.
+#
+#   WHAT DOES IT DO?
+#   ────────────────
+#   Step 1 — Checkout    : Download the code onto GitHub's server
+#   Step 2 — Setup .NET  : Install .NET 8 on that server
+#   Step 3 — Restore     : Download NuGet packages (like npm install)
+#   Step 4 — Build       : Compile the app  (dotnet build)
+#   Step 5 — Test        : Run all unit tests (dotnet test)
+#   Step 6 — Version     : Detect release version from commit message
+#   Step 7 — Stamp       : Write version into version.txt
+#   Step 8 — Changelog   : Auto-generate CHANGELOG.md from commits
+#   Step 9 — Tag         : Create Git tag e.g. v1.2.0
+#   Step 10 — Release    : Create GitHub Release with notes
+#   Step 11 — Publish    : Build the final release package
+#
+#   TRIGGER:
+#   ────────
+#   This workflow ONLY runs when code is pushed to the MAIN branch.
+#   Pushing to development, ABC-123, or any other branch = nothing happens.
+#
+# ==============================================================
+
+name: DemoApp — Main Branch Pipeline
+
+# ── WHEN DOES THIS TRIGGER? ────────────────────────────────
+#
+#   on: push          = when someone pushes code
+#   branches: [main]  = ONLY when that push is to main
+#
+#   So: developer pushes to ABC-123  → nothing happens
+#       reviewer merges to main      → THIS RUNS
+#
+on:
+  push:
+    branches:
+      - main   # <── Only main. Not development. Not feature branches.
+
+# ── PERMISSIONS ────────────────────────────────────────────
+#
+#   contents: write → needed so the pipeline can:
+#     - commit the updated version.txt and CHANGELOG.md back to main
+#     - create a Git tag (e.g. v1.2.0)
+#     - create a GitHub Release
+#
+permissions:
+  contents: write
+
+# ── ENVIRONMENT VARIABLES ──────────────────────────────────
+#
+#   Variables available to ALL jobs and steps below.
+#   Change DOTNET_VERSION here if you upgrade .NET later.
+#
+env:
+  DOTNET_VERSION: '8.0.x'
+  PROJECT_PATH:   'DemoApp/DemoApp.csproj'
+  BUILD_CONFIG:   'Release'
+
+# ==============================================================
+# JOBS
+# A job is a group of steps that run together on one server.
+# Jobs can run in parallel or in sequence (using "needs:").
+# ==============================================================
+
+jobs:
+
+  # ────────────────────────────────────────────────────────
+  # JOB 1: BUILD AND TEST
+  # Runs first, always.
+  # If this fails, the pipeline stops — nothing else runs.
+  # ────────────────────────────────────────────────────────
+  build-and-test:
+    name: Build & Test              # Label shown in GitHub UI
+    runs-on: ubuntu-latest          # GitHub spins up a fresh Ubuntu server
+
+    steps:
+
+      # ── STEP 1 ──────────────────────────────────────────
+      # Download your repo code onto GitHub's temporary server.
+      # Without this, the server has no files to work with.
+      - name: Checkout code
+        uses: actions/checkout@v4   # Official GitHub action for checkout
+        with:
+          fetch-depth: 0            # Get full history (needed for changelog)
+
+      # ── STEP 2 ──────────────────────────────────────────
+      # Install .NET 8 on the server.
+      # GitHub's servers don't have your tools pre-installed —
+      # every workflow sets up its own environment from scratch.
+      - name: Setup .NET ${{ env.DOTNET_VERSION }}
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # ── STEP 3 ──────────────────────────────────────────
+      # Restore NuGet packages.
+      # Same as right-clicking "Restore NuGet Packages" in Visual Studio.
+      # Downloads all dependencies the project needs.
+      - name: Restore dependencies
+        run: dotnet restore ${{ env.PROJECT_PATH }}
+
+      # ── STEP 4 ──────────────────────────────────────────
+      # Build the application in Release mode.
+      # If there are any compile errors, this step FAILS
+      # and the whole pipeline stops with a red X.
+      # The developer must fix their code and push again.
+      - name: Build
+        run: |
+          echo "Building DemoApp..."
+          dotnet build ${{ env.PROJECT_PATH }} \
+            --no-restore \
+            --configuration ${{ env.BUILD_CONFIG }}
+          echo "Build successful."
+
+      # ── STEP 5 ──────────────────────────────────────────
+      # Run all unit tests.
+      # (This project has no test project yet — this step
+      #  will skip gracefully. Add a test project later.)
+      # If any test fails, this step FAILS → pipeline stops.
+      - name: Run tests
+        run: |
+          echo "Running tests..."
+          # dotnet test would go here when a test project exists:
+          # dotnet test --no-build --configuration ${{ env.BUILD_CONFIG }}
+          echo "No test project found — skipping. Add one later."
+
+      # ── STEP 6 ──────────────────────────────────────────
+      # Show a summary in the GitHub Actions log.
+      # This is just for visibility — confirms build passed.
+      - name: Build summary
+        run: |
+          echo "================================================"
+          echo " Build & Test PASSED"
+          echo " Branch : main"
+          echo " Config : ${{ env.BUILD_CONFIG }}"
+          echo " Commit : ${{ github.sha }}"
+          echo " By     : ${{ github.actor }}"
+          echo "================================================"
+
+
+  # ────────────────────────────────────────────────────────
+  # JOB 2: RELEASE
+  # Runs AFTER build-and-test passes (needs: build-and-test).
+  # Only runs if commit message contains "release: vX.Y.Z"
+  # ────────────────────────────────────────────────────────
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build-and-test           # Won't start until Job 1 passes
+
+    steps:
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN is automatic — GitHub provides it.
+          # You don't need to create or configure any secret.
+
+      # ── STEP 7 ──────────────────────────────────────────
+      # Check if the commit message contains "release: vX.Y.Z"
+      # If it does  → extract the version and proceed
+      # If it doesn't → skip all remaining steps quietly
+      #
+      # Example commit messages that TRIGGER a release:
+      #   "release: v1.2.0"
+      #   "Merge dev to main — release: v2.0.0"
+      #
+      # Example commit messages that DO NOT trigger:
+      #   "fix: ABC-123 login crash"
+      #   "Merge pull request #45"
+      #
+      - name: Detect release version
+        id: detect_version
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+
+          # Extract version pattern: v followed by digits and dots
+          VERSION=$(echo "$COMMIT_MSG" | grep -oP '(?<=release:\s)v\d+\.\d+(\.\d+)?' | head -1)
+
+          if [ -z "$VERSION" ]; then
+            echo "No 'release: vX.Y.Z' found in commit message."
+            echo "Skipping release steps."
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release version detected: $VERSION"
+            echo "is_release=true"  >> $GITHUB_OUTPUT
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+          fi
+
+      # ── STEP 8 ──────────────────────────────────────────
+      # Write the version number into version.txt
+      # The app reads this file at startup and displays it.
+      # So after this step, the app will show e.g. "v1.2.0"
+      - name: Stamp version into version.txt
+        if: steps.detect_version.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ steps.detect_version.outputs.version }}"
+          echo "$VERSION" > DemoApp/version.txt
+          echo "version.txt updated to: $VERSION"
+
+      # ── STEP 9 ──────────────────────────────────────────
+      # Auto-generate CHANGELOG.md from commit messages.
+      #
+      # This reads ALL commits since the last release tag
+      # and sorts them into sections based on their prefix:
+      #
+      #   feat:   → ### Added
+      #   fix:    → ### Fixed
+      #   chore:  → ### Maintenance
+      #
+      # This is why commit message prefixes matter!
+      # If developers write "fix: ABC-123 login crash"
+      # it appears here automatically.
+      #
+      - name: Generate CHANGELOG.md
+        if: steps.detect_version.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ steps.detect_version.outputs.version }}"
+          DATE=$(date +%Y-%m-%d)
+
+          # Find the last release tag to compare from
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+
+          if [ -z "$LAST_TAG" ]; then
+            echo "First release — using all commits"
+            COMMITS=$(git log --pretty=format:"%s" HEAD)
+          else
+            echo "Comparing commits from $LAST_TAG to now"
+            COMMITS=$(git log --pretty=format:"%s" ${LAST_TAG}..HEAD)
+          fi
+
+          # Sort commits by their prefix into sections
+          ADDED=$(echo "$COMMITS"   | grep -i "^feat:"   | sed 's/^feat: */- /' || true)
+          FIXED=$(echo "$COMMITS"   | grep -i "^fix:"    | sed 's/^fix: */- /'  || true)
+          CHANGED=$(echo "$COMMITS" | grep -i "^change:" | sed 's/^change: */- /' || true)
+          MAINT=$(echo "$COMMITS"   | grep -i "^chore:"  | sed 's/^chore: */- /' || true)
+
+          # Build the release note block for this version
+          NOTES="## [$VERSION] - $DATE\n\n"
+          [ -n "$ADDED"   ] && NOTES="${NOTES}### Added\n${ADDED}\n\n"
+          [ -n "$FIXED"   ] && NOTES="${NOTES}### Fixed\n${FIXED}\n\n"
+          [ -n "$CHANGED" ] && NOTES="${NOTES}### Changed\n${CHANGED}\n\n"
+          [ -n "$MAINT"   ] && NOTES="${NOTES}### Maintenance\n${MAINT}\n\n"
+          [ -z "$ADDED$FIXED$CHANGED$MAINT" ] && NOTES="${NOTES}- Internal improvements\n\n"
+
+          # Prepend to CHANGELOG.md (keep history below)
+          if [ -f CHANGELOG.md ]; then
+            HEADER=$(head -3 CHANGELOG.md)
+            REST=$(tail -n +4 CHANGELOG.md)
+            printf "%s\n\n%b%s" "$HEADER" "$NOTES" "$REST" > CHANGELOG.md
+          else
+            printf "# DemoApp Changelog\n\nAll notable changes are documented here.\n\n%b" "$NOTES" > CHANGELOG.md
+          fi
+
+          echo "CHANGELOG.md updated."
+
+          # Save notes for the GitHub Release body
+          echo "RELEASE_NOTES<<EOF"  >> $GITHUB_ENV
+          printf "$NOTES"            >> $GITHUB_ENV
+          echo "EOF"                 >> $GITHUB_ENV
+
+      # ── STEP 10 ──────────────────────────────────────────
+      # Commit the updated version.txt and CHANGELOG.md back
+      # to main. This keeps the repo up to date.
+      #
+      # [skip ci] in the commit message tells GitHub Actions
+      # NOT to re-trigger this pipeline — avoids an infinite loop.
+      #
+      - name: Commit version and changelog
+        if: steps.detect_version.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ steps.detect_version.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add DemoApp/version.txt CHANGELOG.md
+          git commit -m "chore: release $VERSION — stamp version and update changelog [skip ci]"
+          git push origin main
+          echo "Changes committed and pushed."
+
+      # ── STEP 11 ──────────────────────────────────────────
+      # Create a Git tag for this version.
+      # A tag is a permanent marker on the exact commit
+      # that was released. You can always go back to it.
+      # e.g.  git checkout v1.2.0  → gets this exact code
+      #
+      - name: Create Git tag
+        if: steps.detect_version.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ steps.detect_version.outputs.version }}"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push origin "$VERSION"
+          echo "Tag $VERSION created."
+
+      # ── STEP 12 ──────────────────────────────────────────
+      # Create a GitHub Release.
+      # This appears under "Releases" on the GitHub repo page.
+      # It shows the version, the date, and the changelog notes.
+      # Anyone on the team can see what changed in each version.
+      #
+      - name: Create GitHub Release
+        if: steps.detect_version.outputs.is_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.detect_version.outputs.version }}
+          name:     "DemoApp ${{ steps.detect_version.outputs.version }}"
+          body:     ${{ env.RELEASE_NOTES }}
+          draft:    false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── STEP 13 ──────────────────────────────────────────
+      # Publish the app — builds the final deployable output.
+      # Output goes to ./publish folder.
+      # In a real setup, the next step would upload this
+      # to a server, Azure, IIS, or a Docker container.
+      #
+      - name: Setup .NET for publish
+        if: steps.detect_version.outputs.is_release == 'true'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Publish app
+        if: steps.detect_version.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ steps.detect_version.outputs.version }}"
+          dotnet restore ${{ env.PROJECT_PATH }}
+          dotnet publish ${{ env.PROJECT_PATH }} \
+            --configuration ${{ env.BUILD_CONFIG }} \
+            --output ./publish \
+            --no-restore
+          echo "App published to ./publish"
+          ls ./publish
+
+      # ── STEP 14 ──────────────────────────────────────────
+      # Final summary — printed in the GitHub Actions log.
+      # Shows what happened in a clean, readable format.
+      #
+      - name: Release summary
+        if: steps.detect_version.outputs.is_release == 'true'
+        run: |
+          VERSION="${{ steps.detect_version.outputs.version }}"
+          echo "================================================"
+          echo " RELEASE COMPLETE"
+          echo ""
+          echo " Version   : $VERSION"
+          echo " Tag       : Created and pushed"
+          echo " Changelog : CHANGELOG.md updated"
+          echo " Release   : GitHub Release created"
+          echo " Published : ./publish folder ready"
+          echo ""
+          echo " Triggered by : ${{ github.actor }}"
+          echo " Commit       : ${{ github.sha }}"
+          echo "================================================"

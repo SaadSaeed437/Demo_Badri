@@ -1,0 +1,19 @@
+## .NET gitignore
+
+# Build output
+bin/
+obj/
+publish/
+out/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# Rider
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
