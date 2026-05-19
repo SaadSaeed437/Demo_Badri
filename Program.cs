@@ -15,7 +15,8 @@ var app = builder.Build();
 string version = "dev";
 if (File.Exists("version.txt"))
     version = File.ReadAllText("version.txt").Trim();
-
+//addition here
+// implemented A17AM-1
 // ── ENDPOINTS ───────────────────────────────────────────────
 
 // Home — shows app info in browser
